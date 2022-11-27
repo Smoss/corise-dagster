@@ -1,4 +1,5 @@
 import csv
+from bisect import bisect_left
 from datetime import datetime
 from heapq import nlargest
 from random import randint
@@ -55,18 +56,51 @@ def csv_helper(file_name: str) -> Iterator[Stock]:
             yield Stock.from_list(row)
 
 
-@op
-def get_s3_data():
-    pass
+
+@op(
+    config_schema={"s3_key": String},
+    out={'stocks': Out(List[Stock], is_required=False), 'empty_stocks': Out(is_required=False)}
+)
+def get_s3_data(context):
+    s3_key = context.op_config["s3_key"]
+    stocks = list(csv_helper(s3_key))
+    if stocks:
+        yield Output(stocks, 'stocks')
+    else:
+        yield Output(None, 'empty_stocks')
+
+@op(
+    config_schema={
+        'nlargest': int
+    },
+    ins={
+        'stocks': In(List[Stock])
+    },
+    out=DynamicOut(Aggregation)
+)
+def process_data(context, stocks: List[Aggregation]):
+    nlargest = context.op_config["nlargest"]
+    max_stocks: List[Aggregation] = []
+    for stock in stocks:
+        max_stocks.append(Aggregation(date=stock.date, high=stock.high))
+        if len(max_stocks) > nlargest:
+            max_stocks.sort(key=lambda aggregation: aggregation.high)
+            max_stocks.pop(0)
+    for aggregation in max_stocks:
+        yield DynamicOutput(
+            aggregation,
+            mapping_key=f"{aggregation.date}_High_{aggregation.high}"
+            .replace(':', '_').replace('-', '_').replace('.', '_').replace(' ', '_')
+        )
 
 
-@op
-def process_data():
-    pass
-
-
-@op
-def put_redis_data():
+@op(
+    config_schema={},
+    ins={
+        'max_stock': In(Aggregation)
+    }
+)
+def put_redis_data(context, max_stock: Aggregation) -> None:
     pass
 
 
@@ -74,10 +108,13 @@ def put_redis_data():
     ins={"empty_stocks": In(dagster_type=Any)},
     description="Notifiy if stock list is empty",
 )
-def empty_stock_notify(context, empty_stocks) -> Nothing:
+def empty_stock_notify(context, empty_stocks) -> None:
     context.log.info("No stocks returned")
 
 
 @job
 def week_1_challenge():
-    pass
+    stocks, empty_stocks = get_s3_data()
+    max_stocks = process_data(stocks)
+    max_stocks.map(put_redis_data)
+    empty_stock_notify(empty_stocks)
