@@ -14,7 +14,7 @@ from workspaces.types import Aggregation, Stock
 def get_s3_data(context):
     s3_key = context.op_config["s3_key"]
     s3_client = context.resources.s3
-    get_dagster_logger().info(s3_key)
+    get_dagster_logger().info(s3_client._client().list_buckets())
     stocks = [Stock.from_list(stock) for stock in s3_client.get_data(s3_key)]
     return stocks
 
