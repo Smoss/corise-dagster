@@ -45,7 +45,7 @@ def put_redis_data(context, stock_aggregation: Aggregation):
 )
 def put_s3_data(context, stock_aggregation: Aggregation):
     s3_client = context.resources.s3
-    s3_client.put_data(stock_aggregation.date.isoformat(), str(stock_aggregation.high))
+    s3_client.put_data(stock_aggregation.date.isoformat(), stock_aggregation)
 
 
 @graph
