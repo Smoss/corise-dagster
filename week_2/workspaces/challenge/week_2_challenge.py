@@ -1,7 +1,7 @@
 from random import randint
 
-from dagster import In, Nothing, String, graph, op
-from dagster_dbt import dbt_cli_resource, dbt_run_op, dbt_test_op
+from dagster import In, Nothing, String, graph, op, get_dagster_logger, Output, Out
+from dagster_dbt import dbt_cli_resource, dbt_run_op, dbt_test_op, DbtOutput
 from workspaces.resources import postgres_resource
 
 DBT_PROJECT_PATH = "/opt/dagster/dagster_home/dbt_test_project/."
@@ -37,10 +37,39 @@ def insert_dbt_data(context, table_name):
 
     context.log.info("Batch inserted")
 
+@op(
+    ins={"dbt_result": In(dagster_type=DbtOutput)},
+    out={'success': Out(is_required=False), 'failure': Out(is_required=False)}
+)
+def check_dbt_data(context, dbt_result):
+    tot_failures = 0
+    for result in dbt_result.result.get('results', []):
+        tot_failures += result['failures']
+
+    if tot_failures:
+        yield Output(None, 'failure')
+    else:
+        yield Output(None, 'success')
+
+
+@op(
+    ins={"success": In()},
+)
+def succeeded(context, success):
+    context.log.info(f"Successfully processed data")
+
+@op(
+    ins={"failure": In()},
+)
+def failed(context, failure):
+    context.log.info(f"Couldn't process data")
 
 @graph
 def week_2_challenge():
-    pass
+    dbt_tbl = create_dbt_table()
+    success, failure = check_dbt_data(dbt_test_op((dbt_run_op(insert_dbt_data(dbt_tbl)))))
+    succeeded(success)
+    failed(failure)
 
 
 docker = {
@@ -68,4 +97,9 @@ docker = {
 
 week_2_challenge_docker = week_2_challenge.to_job(
     name="week_2_challenge_docker",
+    config=docker,
+    resource_defs={
+        'database': postgres_resource,
+        'dbt': dbt_cli_resource
+    }
 )
