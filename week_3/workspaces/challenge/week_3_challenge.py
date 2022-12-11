@@ -6,7 +6,8 @@ class PostgresIOManager(IOManager):
     def __init__(self):
         pass
 
-    def handle_output(self):
+    def handle_output(self, context, obj):
+        database = context.resources.database
         pass
 
     def load_input(self, context):
@@ -63,4 +64,8 @@ docker = {
 }
 
 
-week_3_challenge_docker = week_3_challenge.to_job()
+week_3_challenge_docker = week_3_challenge.to_job(
+    config=docker,
+    resource_defs={"database": postgres_resource},
+    name="week_3_challenge"
+)
